@@ -1,14 +1,45 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
-import { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import React, {
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+  useMemo,
+} from "react";
 import dynamic from "next/dynamic";
 import { GraphData, GraphNode } from "@/lib/types";
 import { getCategoryColor } from "@/lib/colors";
+import { forceCollide, forceX, forceY } from "d3-force";
 
-const ForceGraph2D = dynamic(() => import("react-force-graph-2d"), {
-  ssr: false,
-});
+// next/dynamic's LoadableComponent swallows `ref`, so the instance ref is
+// passed as a plain prop (`forwardedRef`) and attached inside the chunk.
+// Without this `graphRef` stays null and zoomToFit / d3Force never run.
+const ForceGraph2D = dynamic(
+  () =>
+    import("react-force-graph-2d").then((mod) => {
+      const FG = mod.default as any;
+      return function ForceGraphWithRef({
+        forwardedRef,
+        ...props
+      }: { forwardedRef: React.Ref<any> } & Record<string, any>) {
+        return <FG {...props} ref={forwardedRef} />;
+      };
+    }),
+  { ssr: false }
+);
+
+/**
+ * Visual radius (px at scale 1) from the API-assigned `size`:
+ * root 24 -> ~11, depth-1 12..18 -> ~5.5..8, depth-2 10..14 -> ~4.5..6.3,
+ * deeper 8..10 -> ~4..4.5.
+ */
+function nodeRadius(node: any): number {
+  const size = typeof node?.size === "number" ? node.size : 10;
+  if (node?.category === "root" || node?.depth === 0) return 11;
+  return Math.max(4, Math.min(8, size * 0.45));
+}
 
 interface GraphProps {
   data: GraphData;
@@ -19,6 +50,79 @@ interface GraphProps {
 export default function Graph({ data, onNodeClick, onNodeHover }: GraphProps) {
   const graphRef = useRef<any>(null);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+  // Fit-to-view bookkeeping: fit once per new search / expand, never on tick.
+  const pendingFitRef = useRef(false);
+  const fitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const fitKey = useMemo(() => {
+    const root = data.nodes.find((n) => n.depth === 0)?.id ?? "";
+    return `${root}::${data.nodes.length}`;
+  }, [data.nodes]);
+
+  const runFit = useCallback(() => {
+    if (!pendingFitRef.current) return;
+    const fg = graphRef.current;
+    if (!fg) return;
+    pendingFitRef.current = false;
+    if (fitTimerRef.current) {
+      clearTimeout(fitTimerRef.current);
+      fitTimerRef.current = null;
+    }
+    // Mobile: top search bar (~70px) and bottom badge (~56px) overlay the
+    // canvas, so leave more room; the bottom sheet only appears after a tap.
+    // Padding is uniform, so it must clear the tallest overlay: the floating
+    // search bar (~70px) plus a label row under the lowest node. Labels are
+    // not part of the fitted bounds, so phones get extra room on the sides.
+    const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
+    fg.zoomToFit(400, isMobile ? 84 : 110);
+  }, []);
+
+  // Configure forces + schedule a fit whenever the graph content changes.
+  useEffect(() => {
+    pendingFitRef.current = true;
+    let cancelled = false;
+    let tries = 0;
+
+    function configure() {
+      if (cancelled) return;
+      const fg = graphRef.current;
+      if (!fg) {
+        if (tries++ < 120) requestAnimationFrame(configure);
+        return;
+      }
+      fg.d3Force("link")?.distance((link: any) => {
+        const sd = link.source?.depth ?? 0;
+        const td = link.target?.depth ?? 1;
+        const d = Math.min(sd, td);
+        return d === 0 ? 110 : d === 1 ? 70 : 50;
+      });
+      fg.d3Force("charge")?.strength(-320).distanceMax(600);
+      // Shape the cluster to the viewport: a portrait phone gets a tall
+      // ellipse (pull x in harder than y), landscape gets a wide one.
+      const portrait =
+        typeof window !== "undefined" && window.innerWidth < window.innerHeight;
+      fg.d3Force("x", forceX(0).strength(portrait ? 0.55 : 0.02));
+      fg.d3Force("y", forceY(0).strength(portrait ? 0.005 : 0.06));
+      fg.d3Force(
+        "collide",
+        forceCollide((node: any) => nodeRadius(node) + (portrait ? 22 : 14))
+      );
+      fg.d3ReheatSimulation();
+    }
+    configure();
+
+    // Fallback: if the engine has not stopped within ~1.5s, fit anyway.
+    fitTimerRef.current = setTimeout(runFit, 1500);
+
+    return () => {
+      cancelled = true;
+      if (fitTimerRef.current) {
+        clearTimeout(fitTimerRef.current);
+        fitTimerRef.current = null;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fitKey]);
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
 
   // Connected link lookup for hover highlighting
@@ -80,8 +184,7 @@ export default function Graph({ data, onNodeClick, onNodeHover }: GraphProps) {
       const connected = isConnected(id);
       const dimmed = hoveredNodeId != null && !connected;
 
-      // Use smaller visual radii (node.size is in graph coords)
-      const baseR = category === "root" ? 8 : 5;
+      const baseR = nodeRadius(node);
       const r = hovered ? baseR + 1.5 : baseR;
       const alpha = dimmed ? 0.3 : 1;
 
@@ -120,11 +223,16 @@ export default function Graph({ data, onNodeClick, onNodeHover }: GraphProps) {
       }
 
       // Label — show selectively to avoid overlap:
-      //   - Root node: always
+      //   - Root and depth-1 nodes: always
       //   - Hovered or connected to hovered: always
-      //   - All others: only when zoomed in close (globalScale > 1.5)
+      //   - Deeper nodes: only when zoomed in (globalScale > 1.4)
       const isRoot = category === "root";
-      const showLabel = isRoot || hovered || (hoveredNodeId != null && connected) || globalScale > 1.5;
+      const showLabel =
+        isRoot ||
+        (node.depth ?? 1) <= 1 ||
+        hovered ||
+        (hoveredNodeId != null && connected) ||
+        globalScale > 1.4;
 
       if (showLabel) {
         const fontSize = Math.min(12 / globalScale, 14);
@@ -201,21 +309,26 @@ export default function Graph({ data, onNodeClick, onNodeHover }: GraphProps) {
 
   return (
     <ForceGraph2D
-      ref={graphRef}
+      forwardedRef={graphRef}
       graphData={data}
       width={dimensions.width}
       height={dimensions.height}
       backgroundColor="#FAFAF9"
       nodeCanvasObject={drawNode}
-      nodePointerAreaPaint={(node: any, color, ctx) => {
+      nodePointerAreaPaint={(node: any, color: string, ctx: CanvasRenderingContext2D) => {
         ctx.beginPath();
-        ctx.arc(node.x, node.y, 10, 0, Math.PI * 2);
+        ctx.arc(node.x, node.y, Math.max(10, nodeRadius(node) + 4), 0, Math.PI * 2);
         ctx.fillStyle = color;
         ctx.fill();
       }}
       linkCanvasObject={drawLink}
       onNodeClick={handleNodeClick}
       onNodeHover={handleNodeHover}
+      onEngineStop={runFit}
+      warmupTicks={40}
+      cooldownTime={4000}
+      d3AlphaDecay={0.04}
+      d3VelocityDecay={0.35}
       enablePanInteraction={true}
       enableZoomInteraction={true}
       enableNodeDrag={true}
