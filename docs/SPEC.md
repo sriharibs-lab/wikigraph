@@ -1,3 +1,5 @@
+> Original build brief given to Claude Code; kept as design spec.
+
 # WikiGraph — Claude Code Build Prompt
 
 ## What This Is

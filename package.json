@@ -1,7 +1,14 @@
 {
-  "name": "wikigraph-init",
+  "name": "wikigraph",
   "version": "0.1.0",
   "private": true,
+  "description": "Search any topic and explore it as an interactive force-directed graph of connected Wikipedia concepts.",
+  "homepage": "https://wikigraph.vercel.app",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sriharibs-lab/wikigraph.git"
+  },
+  "license": "MIT",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
