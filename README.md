@@ -4,9 +4,14 @@ Search any topic and explore it as a force-directed graph of connected Wikipedia
 
 **Status:** Live at https://wikigraph-ochre.vercel.app · Data is live from Wikipedia on every search, nothing is cached or stored.
 
-<!-- TODO: capture docs/screenshots/wikigraph.png (search "Quantum Entanglement") and restore:
-![WikiGraph showing a search for Quantum Entanglement as a graph of pastel nodes](docs/screenshots/wikigraph.png)
--->
+![WikiGraph showing a search for Seattle as a graph of pastel nodes, with the Seattle info panel open](docs/screenshots/graph-desktop.png)
+
+<table>
+  <tr>
+    <td width="70%"><img src="docs/screenshots/landing-desktop.png" alt="WikiGraph landing page with search box and suggested topics" /></td>
+    <td width="30%"><img src="docs/screenshots/graph-iphone.png" alt="Seattle graph on iPhone" /></td>
+  </tr>
+</table>
 
 ## What it does
 
