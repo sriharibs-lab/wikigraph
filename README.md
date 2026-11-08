@@ -2,7 +2,7 @@
 
 Search any topic and explore it as a force-directed graph of connected Wikipedia concepts. Built for anyone who likes falling down Wikipedia rabbit holes and wants to see the shape of one.
 
-**Status:** Not yet deployed. Target: https://wikigraph.vercel.app · Data is live from Wikipedia on every search, nothing is cached or stored.
+**Status:** Live at https://wikigraph-ochre.vercel.app · Data is live from Wikipedia on every search, nothing is cached or stored.
 
 <!-- TODO: capture docs/screenshots/wikigraph.png (search "Quantum Entanglement") and restore:
 ![WikiGraph showing a search for Quantum Entanglement as a graph of pastel nodes](docs/screenshots/wikigraph.png)
@@ -75,7 +75,7 @@ Open http://localhost:3000. There are no environment variables.
 
 ## Status / roadmap
 
-Working end to end: search, autocomplete, graph, info panel, expand, hover, URL state, mobile bottom sheet. Not deployed yet.
+Working end to end: search, autocomplete, graph, info panel, expand, hover, URL state, mobile bottom sheet. Deployed on Vercel.
 
 What I would do next, roughly in order:
 
